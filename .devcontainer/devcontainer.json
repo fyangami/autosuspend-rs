@@ -1,0 +1,26 @@
+{
+    "name": "Rust Dev Container",
+    "forwardPorts": [
+    ],
+    "image": "mcr.microsoft.com/devcontainers/rust:1",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "christian-kohler.path-intellisense",
+                "codezombiech.gitignore",
+                "donjayamanne.githistory",
+                "eamodio.gitlens",
+                "gruntfuggly.todo-tree",
+                "k--kato.intellij-idea-keybindings",
+                "mhutchie.git-graph",
+                "rust-lang.rust-analyzer",
+                "serayuzgur.crates",
+                "streetsidesoftware.code-spell-checker",
+                "swellaby.rust-pack",
+                "tamasfe.even-better-toml",
+                "vadimcn.vscode-lldb"
+            ]
+        }
+    },
+    "onCreateCommand": "cargo check"
+}
