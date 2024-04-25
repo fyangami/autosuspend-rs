@@ -1,7 +1,6 @@
 use clap::Parser;
 use log::{debug, error, info, warn};
 use std::{
-    env::set_var,
     process::Command,
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -17,7 +16,7 @@ struct Options {
 }
 
 fn main() {
-    init_logging();
+    env_logger::init();
     let options = Options::parse();
     let mut suspend_at: Option<u64> = None;
     loop {
@@ -36,11 +35,7 @@ fn main() {
                 if suspend_ts <= now_ts {
                     warn!("suspend time was meet, system will be suspend");
                     suspend_at = None;
-                    match Command::new("sudo")
-                        .arg("/usr/bin/systemctl")
-                        .arg("suspend")
-                        .output()
-                    {
+                    match Command::new("/usr/bin/systemctl").arg("suspend").output() {
                         Err(e) => {
                             error!("execute suspend command error: {}", e);
                         }
@@ -93,11 +88,4 @@ fn is_any_user_logged_on() -> bool {
         }
     }
     false
-}
-
-fn init_logging() {
-    if option_env!("RUST_LOG").is_none() {
-        set_var("RUST_LOG", "info");
-    }
-    env_logger::init();
 }

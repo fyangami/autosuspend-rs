@@ -60,7 +60,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "automic-suspend-rs"
+name = "autosuspend-rs"
 version = "0.1.0"
 dependencies = [
  "clap",
