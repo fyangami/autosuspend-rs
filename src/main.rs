@@ -1,6 +1,7 @@
 use clap::Parser;
 use log::{debug, error, info, warn};
 use std::{
+    os::unix::process::CommandExt,
     process::Command,
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -8,12 +9,17 @@ use std::{
 
 #[derive(Debug, Parser)]
 struct Options {
-    #[arg(short, long, default_value_t = 5)]
+    #[arg(short, long, default_value_t = 60)]
     check_interval: u64,
 
     #[arg(short, long, default_value_t = 3600)]
     sec_to_suspend: u64,
+
+    #[arg(short, long, default_value_t = false)]
+    force_shutdown: bool,
 }
+
+const ASSUME_SUSPEND_FAILED_TOLERANCE: u64 = 3;
 
 fn main() {
     env_logger::init();
@@ -28,45 +34,65 @@ fn main() {
         if is_any_user_logged_on() {
             info!("got user logged on");
             suspend_at = None;
-        } else {
-            info!("no user logged on");
-            if let Some(suspend_ts) = suspend_at {
-                debug!("suspend time: {}, now: {}", suspend_ts, now_ts);
-                if suspend_ts <= now_ts {
-                    warn!("suspend time was meet, system will be suspend");
-                    suspend_at = None;
-                    match Command::new("/usr/bin/systemctl").arg("suspend").output() {
-                        Err(e) => {
-                            error!("execute suspend command error: {}", e);
-                        }
-                        Ok(output) => {
-                            if !output.status.success() {
-                                error!(
-                                    "execute suspend command error, stdout: {}, stderr: {}",
-                                    String::from_utf8_lossy(&output.stdout),
-                                    String::from_utf8_lossy(&output.stderr)
-                                );
-                            }
-                        }
+            thread::sleep(Duration::from_secs(options.check_interval));
+            continue;
+        }
+        info!("no user logged on");
+        suspend_at.get_or_insert_with(|| {
+            let at = now_ts + options.sec_to_suspend;
+            info!("system will be suspended at: {}", at);
+            return at;
+        });
+        let at = suspend_at.get_or_insert(now_ts + options.sec_to_suspend);
+        debug!("suspend time: {}, now: {}", at, now_ts);
+        let mut how_long_to_suspend = *at - now_ts;
+        if how_long_to_suspend <= 0 {
+            warn!("suspend time was meet, system will be suspending");
+            suspend_at = None;
+            match Command::new("/usr/bin/systemctl").arg("suspend").output() {
+                Err(e) => {
+                    error!("execute suspend command error: {}", e);
+                }
+                Ok(output) => {
+                    if !output.status.success() {
+                        error!(
+                            "execute suspend command error, stdout: {}, stderr: {}",
+                            String::from_utf8_lossy(&output.stdout),
+                            String::from_utf8_lossy(&output.stderr)
+                        );
                     }
                 }
-            } else {
-                info!("starting to take account suspend time");
-                suspend_at = Some(now_ts + options.sec_to_suspend);
             }
+            let after_suspend = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            if after_suspend - now_ts < ASSUME_SUSPEND_FAILED_TOLERANCE {
+                // `systemctl suspend` may execute failed but no error returned
+                error!("instantaneous woken from suspend, assume suspend failed!");
+                if options.force_shutdown {
+                    thread::sleep(Duration::from_secs(3));
+                    warn!("force to shuting down machine");
+                    Command::new("/usr/bin/systemctl").arg("poweroff").exec();
+                }
+            }
+            continue;
         }
-        thread::sleep(Duration::from_secs(options.check_interval));
+        if how_long_to_suspend > options.check_interval {
+            how_long_to_suspend = options.check_interval
+        }
+        thread::sleep(Duration::from_secs(how_long_to_suspend));
     }
 }
 
 fn is_any_user_logged_on() -> bool {
-    match Command::new("who").output() {
+    match Command::new("w").arg("-i").arg("-h").output() {
         Ok(output) if output.status.success() => {
             if let Ok(output) = String::from_utf8_lossy(&output.stdout).parse::<String>() {
                 let output = output.trim();
                 if output != "" {
                     let lens = output.split("\n").collect::<Vec<&str>>();
-                    debug!("current logged on users: {:?}", lens);
+                    debug!("current logged on users: \n\n{:?}", lens);
                     return lens.len() > 0;
                 }
                 return false;
